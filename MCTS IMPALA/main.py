@@ -32,7 +32,7 @@ if __name__ == "__main__":
 
     learner = mp.Process(target = learner, args=(learner_model, queue, parameter_server))
     # Currently each actor has its own object via deepcopy. What happens if I don't explicitly do deepcopy?
-    actors = [mp.Process(target = actor, args = (queue, copy.deepcopy(env), parameter_server)) for i in range(NUM_ACTORS)]
+    actors = [mp.Process(target = actor, args = (queue, copy.deepcopy(env), parameter_server ,nA, nS)) for i in range(NUM_ACTORS)]
 
     [actor.start() for actor in actors]
     learner.start()
