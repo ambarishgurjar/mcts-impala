@@ -9,23 +9,22 @@ from impala.vtrace import vtrace_target
 LEARNER_BATCH_SIZE = 4
 GAMMA = 0.99
 BASELINE_COST = 0.5
-ENTROPY_COST = 0.001
+ENTROPY_COST = 0.4
 LEARNING_RATE = 0.005
-NUM_ACTORS = 4 # This is an important parameter for learner and needs to be as same as in actor.py else the learner process won't terminate properly
+NUM_ACTORS = 4  # This is an important parameter for learner and needs to be as same as in actor.py else the learner process won't terminate properly
 
-def learner(learner_model,  queue, terminated, parameter_server, lr=0.01):
+
+def learner(learner_model, queue, terminated, parameter_server, lr=0.01):
     """Learner to get trajectories from Actors."""
-    optimizer = optim.RMSprop(learner_model.parameters(), lr=LEARNING_RATE, weight_decay=0.99, eps=.1)
+    optimizer = optim.Adam(learner_model.parameters(), lr=LEARNING_RATE, weight_decay=0.99, eps=.1)
     iteration = 0
     parameter_server.push(learner_model.state_dict())
-    num_actors_terminated = 0
-    actors_are_not_terminated = True
-    loop = True
     while True:
         iteration += 1
         batch_of_trajectories = []
 
         if np.all(terminated):
+            print(np.mean([evaluator(learner_model.state_dict()) for i in range(5)]))
             return
 
         while len(batch_of_trajectories) < LEARNER_BATCH_SIZE:
@@ -39,12 +38,13 @@ def learner(learner_model,  queue, terminated, parameter_server, lr=0.01):
         if len(batch_of_trajectories) == 0:
             break
 
-        states, actions_taken, rewards, dones, actor_action_distributions = create_training_batch(batch_of_trajectories)
+        states, actions_taken, rewards, dones, actor_action_distributions, hx = create_training_batch(
+            batch_of_trajectories)
         # If done, then set gamma to 0, else gamma
         discounts = (~dones).to(T.float32) * GAMMA
 
         optimizer.zero_grad()
-        learner_action_distribution, values = learner_model(states, actor=False)
+        learner_action_distribution, values = learner_model(states, dones, hx, actor=False)
         # This is used to create values_t_plus_1 during v-trace
         bootstrap_value = values[-1]
 
@@ -76,9 +76,7 @@ def learner(learner_model,  queue, terminated, parameter_server, lr=0.01):
         optimizer.step()
         # Save learner model -> Push to parameter server
         parameter_server.push(learner_model.state_dict())
-        if iteration % 100 == 0:
-            print(loss.item(), np.mean([evaluator(learner_model.state_dict()) for i in range(20)]))
-    print("Learner Loop ends")
+
 
 # Training batch is indexed by timestamp.
 def create_training_batch(batch_of_trajectories):
@@ -94,16 +92,18 @@ def create_training_batch(batch_of_trajectories):
     dones = []
     states = []
     actor_action_distributions = []
+    hx = []
     for trajectory in batch_of_trajectories:
         actions.append(trajectory.actions)
         rewards.append(trajectory.rewards)
         dones.append(trajectory.dones)
         states.append(trajectory.states)
         actor_action_distributions.append(trajectory.action_distributions)
+        hx.append(trajectory.lstm_hx)
     states = T.stack(states).transpose(0, 1)
     actions = T.stack(actions).transpose(0, 1)
     rewards = T.stack(rewards).transpose(0, 1)
     dones = T.stack(dones).transpose(0, 1)
-    # Why permute?
     actor_action_distributions = T.stack(actor_action_distributions).permute(1, 2, 0)
-    return states, actions, rewards, dones, actor_action_distributions
+    hx = T.stack(hx).transpose(0, 1)
+    return states, actions, rewards, dones, actor_action_distributions, hx

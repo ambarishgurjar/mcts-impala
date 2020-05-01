@@ -1,11 +1,15 @@
-import numpy as np
-import gym
 from copy import deepcopy
-from impala_rollout import impala_rollout
-from multiprocessing import Process, Manager
 from multiprocessing.managers import BaseManager
-from impala.parameter_server import ParameterServer
+
+import gym
+import numpy as np
+
 from impala.model import Network
+from impala.parameter_server import ParameterServer
+from impala_rollout import ImpalaRollout
+import warnings
+warnings.filterwarnings("ignore")
+
 
 class Node:
     """
@@ -63,7 +67,7 @@ class MCTS:
 
         random_action = np.random.choice(self.n_actions)
         next_state, reward, done, _ = env.step(random_action)
-        value_of_next_state = self.__rollout(env)
+        value_of_next_state = self.__impala_rollout(env)
 
         next_state_node = current_state_node.children.get(random_action)
         next_state_node.state = next_state
@@ -75,18 +79,20 @@ class MCTS:
     Performs multiple rollouts from the current state to get value function estimate
     """
 
-    def __rollout(self, env):
-        return np.mean([self.__single_rollout(env) for idx in range(self.n_rollouts)])
-
-    def __single_rollout(self, env):
-        temp_env = deepcopy(env)
-        done = False
-        total_reward = 0
-        Rollout = impala_rollout(temp_env)
-        total_reward = Rollout.simulate_impala_rollout(self.learner_model, self.parameter_server)  
-            
-        temp_env.close()
+    def __impala_rollout(self, env):
+        rollout = ImpalaRollout(env)
+        total_reward = rollout.simulate_impala_rollout(self.learner_model, self.parameter_server)
         return total_reward
+
+    # def __single_rollout(self, env):
+    #     temp_env = deepcopy(env)
+    #     done = False
+    #     total_reward = 0
+    #     rollout = Impala_Rollout(temp_env)
+    #     total_reward = rollout.simulate_impala_rollout(self.learner_model, self.parameter_server)
+    #         
+    #     temp_env.close()
+    #     return total_reward
 
     """
     Learn the traversal policy

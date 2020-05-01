@@ -1,15 +1,14 @@
 import copy
+from multiprocessing.managers import BaseManager
 
 import gym
 import numpy as np
 import torch.multiprocessing as mp
+
 from impala.actor import actor
 from impala.learner import learner
 from impala.model import Network
 from impala.parameter_server import ParameterServer
-
-from multiprocessing import Process, Manager
-from multiprocessing.managers import BaseManager
 
 NUM_ACTORS = 4
 ACTOR_TIMEOUT = 500000

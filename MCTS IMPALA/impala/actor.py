@@ -1,4 +1,3 @@
-import copy
 import torch as T
 
 ACTOR_TIMEOUT = 10
@@ -13,6 +12,7 @@ class Trajectory:
         self.dones = []
         self.states = []
         self.action_distributions = []
+        self.lstm_hx = None
 
     def append(self, state, action, reward, done, action_distribution):
         self.states.append(self._to_tensor(state, dtype=T.float32, shape=(1, 4)))
@@ -20,6 +20,9 @@ class Trajectory:
         self.rewards.append(self._to_tensor(reward, dtype=T.float32))
         self.dones.append(self._to_tensor(done, dtype=T.bool))
         self.action_distributions.append(action_distribution)
+
+    def get_last(self):
+        return self.states[-1], self.actions[-1], self.rewards[-1], self.dones[-1], self.action_distributions[-1]
 
     @staticmethod
     def _to_tensor(value, dtype=T.float32, shape=(1, 1)):
@@ -45,39 +48,46 @@ class Trajectory:
 
 
 def actor(actor_model, queue, mean_rewards, terminated, env, parameter_server, p_id):
-    done = False
-    current_state = env.reset()
     num_episodes = 1
-    trajectory = Trajectory()
     cumulative_reward = 0
     steps = 0
-    if parameter_server.pull() is not None:
-        actor_model.load_state_dict(parameter_server.pull())
+    current_state = env.reset()
+    hx = T.zeros((2, 1, 8))
+    last_state = None
 
     while steps <= 5000:
+        # Pull weights from leaner
+        updated_weights = parameter_server.pull()
+        if updated_weights is not None:
+            actor_model.load_state_dict(updated_weights)
 
-        action_to_take, action_distribution = actor_model(current_state, actor=True)
+        # Initialize a new trajectory
+        trajectory = Trajectory()
+        trajectory.lstm_hx = hx.squeeze()
+        done = True
+        if last_state is not None:
+            trajectory.append(*last_state)
 
-        next_state, reward, done, _ = env.step(action_to_take)
-        trajectory.append(current_state, action_to_take, reward, done, action_distribution.detach())
-        cumulative_reward += reward
+        with T.no_grad():
+            while True:
+                action_to_take, action_distribution, hx = actor_model(current_state, T.tensor(done, dtype=T.bool).view(1,1), hx, actor=True)
+                next_state, reward, done, _ = env.step(action_to_take)
+                trajectory.append(current_state, action_to_take, reward, done, action_distribution.detach())
+                cumulative_reward += reward
 
-        if trajectory.length == STEPS_PER_TRAJECTORY:
-            trajectory.finish()
-            queue.put(trajectory)
-            trajectory = Trajectory()
-            updated_weights = parameter_server.pull()
+                if done:
+                    num_episodes += 1
+                    next_state = env.reset()
+                    hx = T.zeros((2,1,8))
 
-            if updated_weights is not None:
-                actor_model.load_state_dict(updated_weights)
+                if trajectory.length == STEPS_PER_TRAJECTORY:
+                    last_state = trajectory.get_last()
+                    trajectory.finish()
+                    queue.put(trajectory)
+                    break
 
-        if done:
-            num_episodes += 1
-            done = False
-            next_state = env.reset()
-
-        current_state = next_state
-        steps += 1
-
+                current_state = next_state
+                steps += 1
+    env.close()
     mean_rewards[p_id] = cumulative_reward / num_episodes
     terminated[p_id] = 1
