@@ -2,7 +2,10 @@ import numpy as np
 import gym
 from copy import deepcopy
 from impala_rollout import impala_rollout
-
+from multiprocessing import Process, Manager
+from multiprocessing.managers import BaseManager
+from impala.parameter_server import ParameterServer
+from impala.model import Network
 
 class Node:
     """
@@ -30,11 +33,13 @@ class Node:
 
 
 class MCTS:
-    def __init__(self, env):
+    def __init__(self, env, learner_model, parameter_server):
         self.env = env
         self.n_actions = env.action_space.n
         self.n_rollouts = 10
         self.rollout_depth = 20
+        self.learner_model = learner_model
+        self.parameter_server = parameter_server
 
     """
     Select the node with the maximum upper confidence bound
@@ -78,7 +83,7 @@ class MCTS:
         done = False
         total_reward = 0
         Rollout = impala_rollout(temp_env)
-        total_reward = Rollout.simulate_impala_rollout()  
+        total_reward = Rollout.simulate_impala_rollout(self.learner_model, self.parameter_server)  
             
         temp_env.close()
         return total_reward
@@ -119,8 +124,19 @@ def main():
     done = False
     total_reward = 0
     state = env.reset()
+    
+    nS = np.shape(env.observation_space)[0]
+    nA = env.action_space.n
+    
+    BaseManager.register('ParameterServer', ParameterServer)
+    manager = BaseManager()
+    manager.start()
+    parameter_server = manager.ParameterServer()
+    learner_model = Network(nS, nA, "cpu")
+    parameter_server.push(learner_model.state_dict())
+        
     while not done:
-        next_action = MCTS(deepcopy(env)).chose_action(state)
+        next_action = MCTS(deepcopy(env),learner_model, parameter_server).chose_action(state)
         state, reward, done, _ = env.step(next_action)
         total_reward += reward
     return total_reward

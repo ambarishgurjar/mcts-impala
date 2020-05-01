@@ -22,7 +22,7 @@ class impala_rollout:
         self.env = copy.deepcopy(env)
         
         
-    def simulate_impala_rollout(self):
+    def simulate_impala_rollout(self, learner_model, parameter_server):
     
         nS = np.shape(self.env.observation_space)[0]
         nA = self.env.action_space.n
@@ -31,13 +31,13 @@ class impala_rollout:
         #process_manager = mp.Manager()
         #return_dict = process_manager.dict()
 
-        learner_model = Network(nS, nA, "cpu")
+        #learner_model = Network(nS, nA, "cpu")
         actor_model = Network(nS, nA, "cpu")
 
-        BaseManager.register('ParameterServer', ParameterServer)
-        manager = BaseManager()
-        manager.start()
-        parameter_server = manager.ParameterServer()
+        #BaseManager.register('ParameterServer', ParameterServer)
+        #manager = BaseManager()
+        #manager.start()
+        #parameter_server = manager.ParameterServer()
 
         learner_process = mp.Process(target = learner, args=(learner_model,  queue, reward_queue, parameter_server))
         # Currently each actor has its own object via deepcopy. What happens if I don't explicitly do deepcopy?
