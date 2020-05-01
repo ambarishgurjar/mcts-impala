@@ -1,6 +1,7 @@
 import numpy as np
 import gym
 from copy import deepcopy
+from impala_rollout import impala_rollout
 
 
 class Node:
@@ -76,10 +77,9 @@ class MCTS:
         temp_env = deepcopy(env)
         done = False
         total_reward = 0
-        while not done:
-            random_action = np.random.choice(temp_env.action_space.n)
-            _, reward, done, _ = temp_env.step(random_action)
-            total_reward += reward
+        Rollout = impala_rollout(temp_env)
+        total_reward = Rollout.simulate_impala_rollout()  
+            
         temp_env.close()
         return total_reward
 

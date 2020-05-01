@@ -1,6 +1,5 @@
 import copy
 import torch as T
-from impala.model import Network
 
 ACTOR_TIMEOUT = 10
 STEPS_PER_TRAJECTORY = 100
@@ -45,32 +44,53 @@ class Trajectory:
         return len(self.rewards)
 
 
-def actor(queue, env, parameter_server, nA, nS):
-    trajectory = Trajectory()
-    current_state = env.reset()
+
+
+
+
+
+
+
+
+def actor(actor_model, queue, reward_queue, env, parameter_server, p_id):
     done = False
-    actor_model = Network(nS, nA, "cpu")
-    while not done:
-        weights=parameter_server.pull()
+    current_state = env.reset()
+    num_episodes=1
+    trajectory = Trajectory()
+    cummalative_reward = 0
+    steps = 0
+    if (parameter_server.pull() is not None):
+        actor_model.load_state_dict(parameter_server.pull())
+    
+    while (steps<=5000):
         
         action_to_take, action_distribution = actor_model(current_state, actor=True)
+        
         next_state, reward, done, _ = env.step(action_to_take)
         trajectory.append(current_state, action_to_take, reward, done, action_distribution.detach())
-
+        cummalative_reward += reward
+        
         if trajectory.length == STEPS_PER_TRAJECTORY:
             trajectory.finish()
             queue.put(trajectory)
             trajectory = Trajectory()
             updated_weights = parameter_server.pull()
+        
             if updated_weights is not None:
                 actor_model.load_state_dict(updated_weights)
 
         if done:
+            num_episodes += 1
             done = False
             next_state = env.reset()
-
+            
+            
         current_state = next_state
+        steps +=1
     print("Actor terminated")
+    reward_queue.put(cummalative_reward/num_episodes)
+    
+    return None
 
 
 

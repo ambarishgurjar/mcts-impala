@@ -11,12 +11,16 @@ GAMMA = 0.99
 BASELINE_COST = 0.5
 ENTROPY_COST = 0.001
 LEARNING_RATE = 0.005
+NUM_ACTORS = 4 # This is an important parameter for learner and needs to be as same as in actor.py else the learner process won't terminate properly
 
-def learner(learner_model, queue, parameter_server, lr=0.01):
+def learner(learner_model,  queue, reward_queue, parameter_server, lr=0.01):
     """Learner to get trajectories from Actors."""
     optimizer = optim.RMSprop(learner_model.parameters(), lr=LEARNING_RATE, weight_decay=0.99, eps=.1)
     iteration = 0
     parameter_server.push(learner_model.state_dict())
+    mean_reward_from_actors = []
+    num_actors_terminated = 0
+    actors_are_not_terminated = True
     while True:
         iteration += 1
         batch_of_trajectories = []
@@ -24,6 +28,18 @@ def learner(learner_model, queue, parameter_server, lr=0.01):
             if not queue.empty():
                 trajectory = queue.get()
                 batch_of_trajectories.append(trajectory)
+                
+        if not reward_queue.empty():
+             actor_quality = reward_queue.get()
+             print(actor_quality)
+             mean_reward_from_actors.append(actor_quality)
+             num_actors_terminated += 1
+             
+             if num_actors_terminated >= NUM_ACTORS :
+                print("FLAGGG")
+                reward_queue.put(mean_reward_from_actors)
+                break
+                    
         states, actions_taken, rewards, dones, actor_action_distributions = create_training_batch(batch_of_trajectories)
         # If done, then set gamma to 0, else gamma
         discounts = (~dones).to(T.float32) * GAMMA
@@ -63,7 +79,8 @@ def learner(learner_model, queue, parameter_server, lr=0.01):
         parameter_server.push(learner_model.state_dict())
         if iteration % 100 == 0:
             print(loss.item(), np.mean([evaluator(learner_model.state_dict()) for i in range(20)]))
-
+    print("Learner Loop ends")
+    return None
 
 # Training batch is indexed by timestamp.
 def create_training_batch(batch_of_trajectories):
