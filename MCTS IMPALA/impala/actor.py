@@ -15,7 +15,7 @@ class Trajectory:
         self.action_distributions = []
 
     def append(self, state, action, reward, done, action_distribution):
-        self.states.append(self._to_tensor(state, dtype=T.float32, shape=(1,4)))
+        self.states.append(self._to_tensor(state, dtype=T.float32, shape=(1, 4)))
         self.actions.append(self._to_tensor(action))
         self.rewards.append(self._to_tensor(reward, dtype=T.float32))
         self.dones.append(self._to_tensor(done, dtype=T.bool))
@@ -44,38 +44,30 @@ class Trajectory:
         return len(self.rewards)
 
 
-
-
-
-
-
-
-
-
-def actor(actor_model, queue, reward_queue, env, parameter_server, p_id):
+def actor(actor_model, queue, mean_rewards, terminated, env, parameter_server, p_id):
     done = False
     current_state = env.reset()
-    num_episodes=1
+    num_episodes = 1
     trajectory = Trajectory()
-    cummalative_reward = 0
+    cumulative_reward = 0
     steps = 0
-    if (parameter_server.pull() is not None):
+    if parameter_server.pull() is not None:
         actor_model.load_state_dict(parameter_server.pull())
-    
-    while (steps<=5000):
-        
+
+    while steps <= 5000:
+
         action_to_take, action_distribution = actor_model(current_state, actor=True)
-        
+
         next_state, reward, done, _ = env.step(action_to_take)
         trajectory.append(current_state, action_to_take, reward, done, action_distribution.detach())
-        cummalative_reward += reward
-        
+        cumulative_reward += reward
+
         if trajectory.length == STEPS_PER_TRAJECTORY:
             trajectory.finish()
             queue.put(trajectory)
             trajectory = Trajectory()
             updated_weights = parameter_server.pull()
-        
+
             if updated_weights is not None:
                 actor_model.load_state_dict(updated_weights)
 
@@ -83,15 +75,9 @@ def actor(actor_model, queue, reward_queue, env, parameter_server, p_id):
             num_episodes += 1
             done = False
             next_state = env.reset()
-            
-            
+
         current_state = next_state
-        steps +=1
-    print("Actor terminated")
-    reward_queue.put(cummalative_reward/num_episodes)
-    
-    return None
+        steps += 1
 
-
-
-
+    mean_rewards[p_id] = cumulative_reward / num_episodes
+    terminated[p_id] = 1

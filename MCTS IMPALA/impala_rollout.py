@@ -9,7 +9,7 @@ from impala.model import Network
 from impala.parameter_server import ParameterServer
 import statistics
 
-from multiprocessing import Process, Manager
+from multiprocessing import Array
 from multiprocessing.managers import BaseManager
 
 NUM_ACTORS = 4
@@ -27,9 +27,11 @@ class impala_rollout:
         nS = np.shape(self.env.observation_space)[0]
         nA = self.env.action_space.n
         queue = mp.Queue()
-        reward_queue = mp.Queue()
+        #reward_queue = mp.Queue(maxsize=NUM_ACTORS)
         #process_manager = mp.Manager()
         #return_dict = process_manager.dict()
+        mean_rewards = Array('d', [0]*NUM_ACTORS)
+        terminated = Array('i', [0]*NUM_ACTORS)
 
         #learner_model = Network(nS, nA, "cpu")
         actor_model = Network(nS, nA, "cpu")
@@ -39,19 +41,25 @@ class impala_rollout:
         #manager.start()
         #parameter_server = manager.ParameterServer()
 
-        learner_process = mp.Process(target = learner, args=(learner_model,  queue, reward_queue, parameter_server))
+        learner_process = mp.Process(target = learner, args=(learner_model,  queue, terminated, parameter_server))
+
         # Currently each actor has its own object via deepcopy. What happens if I don't explicitly do deepcopy?
-        actors = [mp.Process(target = actor, args = (copy.deepcopy(actor_model), queue, reward_queue, copy.deepcopy(self.env), parameter_server, i)) for i in range(NUM_ACTORS)]
+        actors = [mp.Process(target = actor, args = (copy.deepcopy(actor_model), queue, mean_rewards, terminated, copy.deepcopy(self.env), parameter_server, i)) for i in range(NUM_ACTORS)]
         print("Actor will now start")
         [actor.start() for actor in actors]
+
+        #mean_reward = learner(learner_model, queue, reward_queue, parameter_server)
         learner_process.start()
-        print("Learner has started")
-        [actor.join() for actor in actors]
-        print("Rollout Flag 1")
+        #mean_reward = reward_queue.get()
+        print(mean_rewards[:])
         learner_process.join()
-        print("Rollout Flag 2")
-        print(statistics.mean(reward_queue.get()))
-        return statistics.mean(reward_queue.get())
+
+        print(mean_rewards[:])
+        #[actor.join() for actor in actors]
+        [actor.terminate() for actor in actors]
+
+        print(np.mean(mean_rewards))
+        return np.mean(mean_rewards)
         
 
 

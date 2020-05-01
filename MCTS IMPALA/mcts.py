@@ -92,7 +92,7 @@ class MCTS:
     Learn the traversal policy
     """
 
-    def chose_action(self, state):
+    def choose_action(self, state):
         root = Node(state)
         for i in range(self.rollout_depth):
             temp_env = deepcopy(self.env)
@@ -136,13 +136,14 @@ def main():
     parameter_server.push(learner_model.state_dict())
         
     while not done:
-        next_action = MCTS(deepcopy(env),learner_model, parameter_server).chose_action(state)
+        next_action = MCTS(deepcopy(env), learner_model, parameter_server).choose_action(state)
         state, reward, done, _ = env.step(next_action)
         total_reward += reward
     return total_reward
 
 
 if __name__ == "__main__":
-    scores = [main() for i in range(10)]
-    print(scores)
-    print(np.mean(scores))
+    # scores = [main() for i in range(10)]
+    # print(scores)
+    # print(np.mean(scores))
+    print(main())
